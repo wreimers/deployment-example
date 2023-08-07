@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1
+
+# the importance of optimized builds
+# REPOSITORY   TAG       IMAGE ID       CREATED              SIZE
+# app_prod     latest    4053cdad9d2a   9 seconds ago        65.5MB
+# app_dev      latest    29bc1dcbd8e8   About a minute ago   1.08GB
+
+ARG \
+    PYTHON_VERSION=3.9 \
+    WORKER_USERNAME=spiderman \
+    WORKER_UID=1610 \
+    WORKER_GID=1610
+
+FROM python:${PYTHON_VERSION}-slim as builder
+
+ENV \
+    # python
+    PYTHONFAULTHANDLER=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONHASHSEED=random \
+    PYTHONDONTWRITEBYTECODE=1 \
+    # pip
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=100 \
+    PIP_ROOT_USER_ACTION=ignore \
+    # poetry
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_CACHE_DIR='/var/cache/pypoetry' \
+    POETRY_HOME='/usr/local'
+
+WORKDIR /app
+COPY ./poetry.lock ./pyproject.toml ./
+
+RUN set -ex \
+    && pip install poetry \
+    && poetry install --no-root --no-ansi --no-interaction --no-dev \
+    && poetry add gunicorn \
+    && poetry export -f requirements.txt -o requirements.txt
+
+SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
+
+FROM python:${PYTHON_VERSION}-alpine AS final
+
+ARG \
+    PYTHON_VERSION \
+    WORKER_UID \
+    WORKER_GID \
+    WORKER_USERNAME
+
+ENV \
+    # python
+    PYTHONFAULTHANDLER=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONHASHSEED=random
+
+WORKDIR /app
+
+# note these are commands specific to *-alpine images
+RUN set -ex \
+    && addgroup --system --gid ${WORKER_GID} "${WORKER_USERNAME}" \
+    && adduser -S -H -u ${WORKER_UID} -G "${WORKER_USERNAME}" "${WORKER_USERNAME}"
+
+COPY --from=builder /app/requirements.txt .
+
+RUN set -ex && pip install -r requirements.txt
+
+COPY app.py ./
+RUN chown -R "${WORKER_USERNAME}":"${WORKER_USERNAME}" .
+
+USER ${WORKER_USERNAME}
+ENTRYPOINT [ "gunicorn" ]
+CMD [ \
+    "--bind", "0.0.0.0:5000", \
+    "--workers", "2", \
+    "--threads", "4", \
+    "--worker-class", "gthread", \
+    "--worker-tmp-dir", "/dev/shm", \
+    "--access-logfile", "-", \
+    "app:app" \
+    ]
