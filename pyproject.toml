@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "deployment-example"
+version = "0.1.0"
+description = "Example deployment."
+authors = ["Liam Reimers <liam.reimers@gmail.com>"]
+license = "Public Domain"
+readme = "README.md"
+packages = [{include = "deployment_example"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+Flask = "^2.3.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
